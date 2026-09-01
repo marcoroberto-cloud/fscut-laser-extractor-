@@ -6,7 +6,7 @@ import re
 
 st.set_page_config(page_title="Gestão de Corte Laser FSCut", layout="wide", page_icon="⚙️")
 
-# Controle de estado para limpar os uploads
+# Controle de estado para limpar uploads
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -32,7 +32,6 @@ with col_btn:
         pass
 
 def converter_tempo_para_segundos(tempo_str):
-    """Converte 'hh:mm:ss' em segundos totais."""
     try:
         partes = tempo_str.split(":")
         if len(partes) == 3:
@@ -42,7 +41,6 @@ def converter_tempo_para_segundos(tempo_str):
     return 0
 
 def formatar_segundos_para_tempo(segundos):
-    """Formata segundos inteiros em 'hh:mm:ss'."""
     h = int(segundos // 3600)
     m = int((segundos % 3600) // 60)
     s = int(segundos % 60)
@@ -59,7 +57,7 @@ def processar_fscut_pdf(pdf_file):
     cnc_match = re.search(r"CNC\s*(\d{5,6})", texto_unificado) or re.search(r"\b(\d{5,6})\b", texto_unificado)
     cnc = cnc_match.group(1) if cnc_match else ""
 
-    # 2. Projeto (antigo obs.)
+    # 2. Projeto
     projeto = ""
     for i, linha in enumerate(linhas):
         if "Trabalho" in linha:
@@ -81,7 +79,7 @@ def processar_fscut_pdf(pdf_file):
     larg_chapa = float(dim_match.group(2)) if dim_match else 0.0
     espessura = float(dim_match.group(3).replace(",", ".")) if dim_match else 0.0
 
-    # 5. Material com regra de SAE -> AÇO CARBONO
+    # 5. Material com regra: SAE -> AÇO CARBONO
     mat_match = re.search(r"Material\s+([A-Za-z0-9\sÁ-Úá-ú]+?)(?=\s+Tempo|\s+X\b|\s+Y\b|\s+Aprov|$)", texto_unificado, re.IGNORECASE)
     material_raw = mat_match.group(1).strip() if mat_match else "SAE 1020"
     
@@ -94,7 +92,7 @@ def processar_fscut_pdf(pdf_file):
     else:
         material = material_raw.upper()
 
-    # 6. Tempo de Corte (Unitário e Total com repetições)
+    # 6. Tempo de Corte
     tempo_match = re.search(r"Tempo total\s*[:\|]?\s*([\d:\.]+)", texto_unificado)
     tempo_unit_str = "00:00:00"
     if tempo_match:
@@ -110,7 +108,7 @@ def processar_fscut_pdf(pdf_file):
     segundos_totais = segundos_unit * qtd_chapas
     tempo_total_repeticoes_str = formatar_segundos_para_tempo(segundos_totais)
 
-    # 7. Porcentagens (Aproveitamento, Retalho e Perda)
+    # 7. Porcentagens
     aprov_match = re.search(r"Aprov\.\s*\(%\)\s*([\d\.,]+)", texto_unificado)
     ret_match = re.search(r"Ret\.\s*\(%\)\s*([\d\.,]+)", texto_unificado)
     perda_match = re.search(r"Perda\s*\(%\)\s*([\d\.,]+)", texto_unificado)
@@ -125,7 +123,7 @@ def processar_fscut_pdf(pdf_file):
     peso_lote = peso_unit * qtd_chapas
     sucata_kg = round(peso_lote * (perda_pct / 100.0), 3)
 
-    # Linha Operacional formatada
+    # Linha Operacional
     linha_op = {
         "#CNC": cnc,
         "QUANT. REP. (CH)": qtd_chapas,
@@ -138,6 +136,7 @@ def processar_fscut_pdf(pdf_file):
         "PROJETO": projeto
     }
 
+    # Linha Analítica
     linha_metricas = {
         "CNC": cnc,
         "PROJETO": projeto,
@@ -169,9 +168,7 @@ if uploaded_files:
     df_op = pd.DataFrame(dados_op)
     df_met = pd.DataFrame(dados_metricas)
 
-    # ====================================================
-    # SELETOR DE PROJETO (TODOS OU FILTRO ESPECÍFICO)
-    # ====================================================
+    # Seletor de Projeto
     st.markdown("---")
     projetos_unicos = ["TODOS OS PROJETOS"] + sorted(list(df_met["PROJETO"].unique()))
     projeto_selecionado = st.selectbox("🎯 Filtrar Visão do Dashboard e Relatórios:", projetos_unicos)
@@ -183,9 +180,7 @@ if uploaded_files:
         df_met_filtrado = df_met[df_met["PROJETO"] == projeto_selecionado].copy()
         df_op_filtrado = df_op[df_op["PROJETO"] == projeto_selecionado].copy()
 
-    # ====================================================
-    # DASHBOARD
-    # ====================================================
+    # Dashboard
     st.subheader(f"📊 Indicadores de Produção — {projeto_selecionado}")
 
     total_chapas = int(df_met_filtrado["Qtd Chapas"].sum())
@@ -198,9 +193,9 @@ if uploaded_files:
 
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Total de Chapas", f"{total_chapas} un")
-    m2.metric("Tempo Total Corte (c/ Rep)", tempo_formatado_total)
+    m2.metric("Tempo Total Corte", tempo_formatado_total)
     m3.metric("Matéria-Prima Bruta", f"{peso_bruto_total:,.2f} kg")
-    m4.metric("Volume de Perda/Sucata", f"{sucata_gerada_total:,.2f} kg")
+    m4.metric("Volume Sucata", f"{sucata_gerada_total:,.2f} kg")
     m5.metric("Aproveitamento Médio", f"{aprov_medio:.1f}%")
 
     col_g1, col_g2 = st.columns(2)
@@ -214,9 +209,7 @@ if uploaded_files:
         chart_perda = df_met_filtrado.set_index("CNC")["Perda (%)"]
         st.bar_chart(chart_perda)
 
-    # ====================================================
-    # TABELAS DE DADOS & DOWNLOAD EXCEL
-    # ====================================================
+    # Tabelas e Exportação
     st.markdown("---")
     st.subheader("📋 Tabela Operacional de Fábrica")
     st.dataframe(df_op_filtrado, use_container_width=True)
@@ -231,14 +224,12 @@ if uploaded_files:
         "Perda (%)": "mean"
     }).reset_index()
 
-    # Formata o tempo consolidado de cada grupo de material
     resumo_material["Tempo Total Corte"] = resumo_material["Segundos Totais"].apply(formatar_segundos_para_tempo)
     resumo_material = resumo_material.drop(columns=["Segundos Totais"])
     resumo_material = resumo_material.rename(columns={"Aprov (%)": "Aprov Médio (%)", "Perda (%)": "Perda Média (%)"})
     
     st.dataframe(resumo_material, use_container_width=True)
 
-    # Geração do arquivo Excel consolidado
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
         df_op_filtrado.to_excel(writer, sheet_name="Programacao_Operacional", index=False)
